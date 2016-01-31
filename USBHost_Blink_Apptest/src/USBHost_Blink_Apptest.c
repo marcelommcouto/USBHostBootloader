@@ -13,22 +13,46 @@
 #endif
 
 #include <cr_section_macros.h>
-
 #include <stdio.h>
 
-// TODO: insert other include files here
+int main(void)
+{
+	uint32_t i, j, k;
+	uint8_t loops = 50, repeat = 2;
+	uint8_t z = 0;
 
-// TODO: insert other definitions and declarations here
+	/* Initialize System. */
+	SystemInit();
 
-int main(void) {
+	/* Initialize Clock */
+	SystemCoreClockUpdate();
 
-    printf("Hello World\n");
+	for(i = 4; i < 12; i++)
+	{
+		LPC_GPIO0->FIODIR |= (1 << i);
+	}
 
-    // Force the counter to be placed into memory
-    volatile static int i = 0 ;
-    // Enter an infinite loop, just incrementing a counter
-    while(1) {
-        i++ ;
-    }
-    return 0 ;
+	while(1)
+	{
+		for (k = 0; k < repeat; k++)
+		{
+			LPC_GPIO0->FIOCLR |= (1 << (4 + z));
+			LPC_GPIO0->FIOCLR |= (1 << (11 - z));
+
+			for(j = 0; j < loops; j++)
+			{
+				for(i=0; i < 30000; i++);
+			}
+
+			LPC_GPIO0->FIOSET |= (1 << (4 + z));
+			LPC_GPIO0->FIOSET |= (1 << (11 - z));
+
+			for(j = 0; j < loops; j++)
+			{
+				for(i=0; i < 30000; i++);
+			}
+		}
+		z++;
+		if (z == 4) z = 0;
+	}
 }
