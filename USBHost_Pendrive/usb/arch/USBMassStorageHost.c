@@ -5,10 +5,15 @@
  *      Author: marcelo
  */
 
+#include "LPC17xx.h"
+
 #include "USBMassStorageHost.h"
 
 #include "USB.h"
 #include "MassStorageClassHost.h"
+#include "bootloaderconfig.h"
+
+#include "lpc17xx_iap.h"
 
 #include "ff.h"
 #include "ffconf.h"
@@ -28,7 +33,21 @@ static USB_ClassInfo_MS_Host_t FlashDisk_MS_Interface = {
 	},
 };
 
-extern const unsigned sector_start_map[];
+const uint32_t sector_start_map[MAX_FLASH_SECTOR] = {SECTOR_0_START,             \
+SECTOR_1_START,SECTOR_2_START,SECTOR_3_START,SECTOR_4_START,SECTOR_5_START,      \
+SECTOR_6_START,SECTOR_7_START,SECTOR_8_START,SECTOR_9_START,SECTOR_10_START,     \
+SECTOR_11_START,SECTOR_12_START,SECTOR_13_START,SECTOR_14_START,SECTOR_15_START, \
+SECTOR_16_START,SECTOR_17_START,SECTOR_18_START,SECTOR_19_START,SECTOR_20_START, \
+SECTOR_21_START,SECTOR_22_START,SECTOR_23_START,SECTOR_24_START,SECTOR_25_START, \
+SECTOR_26_START,SECTOR_27_START,SECTOR_28_START,SECTOR_29_START					 };
+
+const uint32_t sector_end_map[MAX_FLASH_SECTOR] = {SECTOR_0_END,SECTOR_1_END,    \
+SECTOR_2_END,SECTOR_3_END,SECTOR_4_END,SECTOR_5_END,SECTOR_6_END,SECTOR_7_END,   \
+SECTOR_8_END,SECTOR_9_END,SECTOR_10_END,SECTOR_11_END,SECTOR_12_END,             \
+SECTOR_13_END,SECTOR_14_END,SECTOR_15_END,SECTOR_16_END,SECTOR_17_END,           \
+SECTOR_18_END,SECTOR_19_END,SECTOR_20_END,SECTOR_21_END,SECTOR_22_END,           \
+SECTOR_23_END,SECTOR_24_END,SECTOR_25_END,SECTOR_26_END,                         \
+SECTOR_27_END,SECTOR_28_END,SECTOR_29_END										 };
 
 static SCSI_Capacity_t DiskCapacity;
 static uint8_t buffer[_MIN_SS];
@@ -36,7 +55,7 @@ static FATFS fatFS;	/* File system object */
 static FIL fileObj;	/* File object */
 
 /* Task to Write Data in USBPendrive. */
-void enter_usb_isp(void)
+void enterusbisp(void)
 {
 	USB_CurrentMode = USB_MODE_Host;
 	USB_Disable();
@@ -60,8 +79,8 @@ static void die(FRESULT rc)
 void USB_ReadWriteFile(void)
 {
 	FRESULT rc;		/* Result code */
-	int i;
-	UINT br;/*, bw*/;
+	UINT br;
+	uint32_t i;
 	uint8_t *ptr;
 
 	if(f_mount(&fatFS, "0:", 1) != FR_OK) goto disk_error;	/* First... Mounting USB Unit. */
@@ -73,24 +92,24 @@ void USB_ReadWriteFile(void)
 	}
 	else
 	{
-//		unsigned *address = USER_FLASH_START;
-//
-//		printf("\nOpened file firmware.bin from USB Disk. Update User Memory Area.  ");
-//
-//		for (;;)
-//		{
-//			/* Read a chunk of file */
-//			rc = f_read(&fileObj, buffer, sizeof(buffer), &br);
-//
-//			if (rc || !br)
-//			{
-//				break;					/* Error or end of file */
-//			}
-//
-//			ptr = (uint8_t *) buffer;
-//
-//			if(address == USER_FLASH_START)
-//			{
+		uint32_t *address = USER_FLASH_START;
+
+		printf("\nOpened file firmware.bin from USB Disk. Update User Memory Area.  ");
+
+		for (;;)
+		{
+			/* Read a chunk of file */
+			rc = f_read(&fileObj, buffer, sizeof(buffer), &br);
+
+			if (rc || !br)
+			{
+				break;					/* Error or end of file */
+			}
+
+			ptr = (uint8_t *) buffer;
+
+			if(address == (uint32_t *)USER_FLASH_START)
+			{
 //				unsigned checksum, i;
 //				uint8_t *tmpptr;
 //
@@ -107,13 +126,43 @@ void USB_ReadWriteFile(void)
 //					rc = 1;
 //					break;					/* Error! */
 //				}
-//				erase_user_flash();
-//			}
-//			//
-//			write_flash(address, ptr, sizeof(buffer));
-//			//
-//			address += _MIN_SS;
-//		}
+
+				__disable_irq();
+				if(PrepareSector(USER_START_SECTOR, MAX_USER_SECTOR) != CMD_SUCCESS)
+				{
+					while(1); /* No way to recover. Just let Windows report a write failure */
+				}
+				if(EraseSector(USER_START_SECTOR, MAX_USER_SECTOR) != CMD_SUCCESS)
+				{
+					while(1); /* No way to recover. Just let Windows report a write failure */
+				}
+				__enable_irq();
+			}
+			/* */
+			__disable_irq();
+
+			for(i = USER_START_SECTOR; i <= MAX_USER_SECTOR; i++)
+			{
+				if(address < (uint32_t *)sector_end_map[i])
+				{
+					if(address == (uint32_t *)sector_start_map[i])
+					{
+						PrepareSector(i,i);
+						EraseSector(i,i);
+					}
+					PrepareSector(i,i);
+					break;
+				}
+			}
+			__enable_irq();
+			//
+			if(CopyRAM2Flash((uint8_t *)address, ptr, FLASH_BUF_SIZE) != CMD_SUCCESS)
+			{
+				while(1); /* No way to recover. Just let Windows report a write failure */
+			}
+			//
+			address += _MIN_SS;
+		}
 
 		if (rc)
 		{
@@ -182,7 +231,8 @@ void EVENT_USB_Host_DeviceEnumerationComplete(const uint8_t corenum)
 	}
 
 	uint8_t MaxLUNIndex;
-	if (MS_Host_GetMaxLUN(&FlashDisk_MS_Interface, &MaxLUNIndex)) {
+	if (MS_Host_GetMaxLUN(&FlashDisk_MS_Interface, &MaxLUNIndex))
+	{
 		printf("\nError retrieving max LUN index.");
 		USB_Host_SetDeviceConfiguration(FlashDisk_MS_Interface.Config.PortNumber, 0);
 		return;
@@ -292,7 +342,7 @@ int FSUSB_DiskAcquire(DISK_HANDLE_T *hDisk)
 		if (ErrorCode != MS_ERROR_LOGICAL_CMD_FAILED) {
 			printf("Failed\r\n");
 			USB_Host_SetDeviceConfiguration(hDisk->Config.PortNumber, 0);
-			return 0;
+			return(0);
 		}
 	}
 	printf("Done.\r\n");
@@ -300,23 +350,23 @@ int FSUSB_DiskAcquire(DISK_HANDLE_T *hDisk)
 	if (MS_Host_ReadDeviceCapacity(hDisk, 0, &DiskCapacity)) {
 		printf("Error retrieving device capacity.\r\n");
 		USB_Host_SetDeviceConfiguration(hDisk->Config.PortNumber, 0);
-		return 0;
+		return(0);
 	}
 
 	printf(("%lu blocks of %lu bytes.\r\n"), DiskCapacity.Blocks, DiskCapacity.BlockSize);
-	return 1;
+	return(1);
 }
 
 /* Get sector count */
 uint32_t FSUSB_DiskGetSectorCnt(DISK_HANDLE_T *hDisk)
 {
-	return DiskCapacity.Blocks;
+	return(DiskCapacity.Blocks);
 }
 
 /* Get Block size */
 uint32_t FSUSB_DiskGetSectorSz(DISK_HANDLE_T *hDisk)
 {
-	return DiskCapacity.BlockSize;
+	return(DiskCapacity.BlockSize);
 }
 
 /* Read sectors */
@@ -325,9 +375,9 @@ int FSUSB_DiskReadSectors(DISK_HANDLE_T *hDisk, void *buff, uint32_t secStart, u
 	if (MS_Host_ReadDeviceBlocks(hDisk, 0, secStart, numSec, DiskCapacity.BlockSize, buff)) {
 		printf("Error reading device block.\r\n");
 		USB_Host_SetDeviceConfiguration(FlashDisk_MS_Interface.Config.PortNumber, 0);
-		return 0;
+		return(0);
 	}
-	return 1;
+	return(1);
 }
 
 /* Write Sectors */
@@ -335,9 +385,9 @@ int FSUSB_DiskWriteSectors(DISK_HANDLE_T *hDisk, void *buff, uint32_t secStart, 
 {
 	if (MS_Host_WriteDeviceBlocks(hDisk, 0, secStart, numSec, DiskCapacity.BlockSize, buff)) {
 		printf("Error writing device block.\r\n");
-		return 0;
+		return(0);
 	}
-	return 1;
+	return(1);
 }
 
 /* Disk ready function */
@@ -346,11 +396,11 @@ int FSUSB_DiskReadyWait(DISK_HANDLE_T *hDisk, int tout)
 	volatile int i = tout * 100;
 	while (i--) {	/* Just delay */
 	}
-	return 1;
+	return(1);
 }
 
 int FSUSB_InitRealTimeClock(void)
 {
-	return 1;
+	return(1);
 }
 
