@@ -37,7 +37,7 @@ int main(void)
 	SystemCoreClockUpdate();
 
 	/* Check to see if there is a user application in the LPC1768's flash memory. */
-	if(userapppresent())
+	if(userapppresent() == true)
 	{
 		/* There is an application, but need to check if user is pressing the button
 		   to indicate they want to upload a new application. */
@@ -71,8 +71,7 @@ static void executeuserapp(void)
 
 	uint32_t *p;	/* used for loading address of reset handler from user flash. */
 
-	/* Change the Vector Table to the USER_FLASH_START
-	in case the user application uses interrupts */
+	/* Change the Vector Table to the USER_FLASH_START in case the user application uses interrupts */
 	SCB->VTOR = (USER_FLASH_START & 0x1FFFFF80);
 
 	/* Load contents of second word of user flash - the reset handler address in the applications vector table. */
@@ -83,15 +82,11 @@ static void executeuserapp(void)
 
 	/* Jump to user application. */
     user_code_entry();
-
 }
 
 static bool userapppresent(void)
 {
-	uint32_t offset;
-	BlankCheckSector(USER_START_SECTOR, USER_START_SECTOR, &offset, NULL);
-
-	if(offset == 0)
+	if(BlankCheckSector(USER_START_SECTOR, USER_START_SECTOR, NULL, NULL) == CMD_SUCCESS)
 	{
 		return(false);
 	}
@@ -108,7 +103,7 @@ static bool userapppresent(void)
 	uint32_t *pmem = (uint32_t *)USER_FLASH_START;
 	uint32_t checksum = 0, i;
 
-	for (i = 0; i <= 7; i++)
+	for (i = 0; i < 8; i++)
 	{
 		checksum += *pmem;
 		pmem++;

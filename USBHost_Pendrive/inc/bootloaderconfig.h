@@ -164,6 +164,16 @@
 #define FLASH_BUF_SIZE 			_MIN_SS
 #define USER_FLASH_START 		SECTOR_16_START
 #define MAX_FLASH_SECTOR 		30
+
+#define DEBUG					1
+
+#if DEBUG
+
+#define PRINTDBG 				printf
+
+#else
+
+#endif
 /*******************************************************************************
  *                     ESTRUTURAS E DEFINICOES DE TIPOS						   *	
  ******************************************************************************/
