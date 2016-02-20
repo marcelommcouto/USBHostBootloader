@@ -87,6 +87,9 @@
 
 #define COMPUTE_BINARY_CHECKSUM
 
+#define LEDPORT					LPC_GPIO0
+#define LEDPORTPIN				4
+
 /*
 // <h> Update Entry Pin
 //   <o0> Port
@@ -168,12 +171,13 @@
 #define DEBUG					1
 
 #if DEBUG
-
-#define PRINTDBG 				printf
-
+#define PRINTDBG(message)			printf(message);
+#define PRINTDBGA(message, vars)	printf(message, vars);
 #else
-
+#define PRINTDBG(message)	{ ; }
+#define PRINTDBGA(message, vars)	{ ; }
 #endif
+
 /*******************************************************************************
  *                     ESTRUTURAS E DEFINICOES DE TIPOS						   *	
  ******************************************************************************/
@@ -182,33 +186,9 @@
  *                       VARIAVEIS PUBLICAS (Globais)						   *
  ******************************************************************************/
 
-
 /*******************************************************************************
  *                      PROTOTIPOS DAS FUNCOES PUBLICAS						   *
  ******************************************************************************/
-
-/**
- * Inicialização deste módulo.
- *
- * @return void
- *
- * @pre Descreva a pré-condição para esta função
- *
- * @post Descreva a pós-condição para esta função
- *
- * @invariant Descreva o que não pode variar quando acabar a execução da função 
- *
- * @note
- *  Esta função deve ser chamada durante a inicialização do software caso este
- *  módulo seja utilizado.
- *
- * <b> Exemplo de uso: </b>
- * @code
- *    template_init();
- * @endcode
- ******************************************************************************/
-void bootloaderconfigInit(void);
-
 
 /*******************************************************************************
  *                                   EOF									   *	

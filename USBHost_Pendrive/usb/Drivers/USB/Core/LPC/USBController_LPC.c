@@ -132,13 +132,12 @@ static void USB_Init_Device(uint8_t corenum)
 #if defined(USB_CAN_BE_HOST)
 static void USB_Init_Host(uint8_t corenum)
 {
-	//uint8_t i;
-
-	//for(i=0;i<PIPE_TOTAL_PIPES;i++) PipeInfo[i].PipeHandle=0;
+	USB_HostState[corenum] = HOST_STATE_Unattached;
+	USB_Host_ControlPipeSize[corenum] = PIPE_CONTROLPIPE_DEFAULT_SIZE;
 
 	pipeselected[corenum] = PIPE_CONTROLPIPE;
 
-	if(HcdInitDriver(corenum)==HCD_STATUS_OK)
+	if(HcdInitDriver(corenum) == HCD_STATUS_OK)
 	{
 		USB_IsInitialized = true;
 		HAL_EnableUSBInterrupt(corenum);
@@ -148,9 +147,6 @@ static void USB_Init_Host(uint8_t corenum)
 		USB_IsInitialized = false;
 		HcdDeInitDriver(corenum);
 	}
-
-	USB_HostState[corenum]   = HOST_STATE_Unattached;
-	USB_Host_ControlPipeSize[corenum] = PIPE_CONTROLPIPE_DEFAULT_SIZE;
 }
 #endif
 

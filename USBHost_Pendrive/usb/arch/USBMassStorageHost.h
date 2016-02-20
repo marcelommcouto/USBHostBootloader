@@ -96,7 +96,7 @@ int FSUSB_InitRealTimeClock(void);
 int FSUSB_DiskReadyWait(DISK_HANDLE_T *hDisk, int tout);
 
 void enterusbisp(void);
-void USB_ReadWriteFile(void);
+bool USB_ReadWriteFile(void);
 
 /* Erase block size fixed to 4K */
 #define FSUSB_DiskGetBlockSz(hDisk)         (4 * 1024)

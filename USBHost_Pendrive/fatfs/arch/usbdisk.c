@@ -32,6 +32,7 @@
 #include "LPC17xx.h"
 #include "USBMassStorageHost.h"
 #include "usbdisk.h"
+#include "bootloaderconfig.h"
 
 /*****************************************************************************
  * Private types/enumerations/variables
@@ -119,7 +120,7 @@ DSTATUS USB_disk_initialize(void)
 	/* Enumerate the card once detected. Note this function may block for a little while. */
 	if (!FSUSB_DiskAcquire(hDisk))
 	{
-		printf("Disk Enumeration failed...\r\n");
+		PRINTDBG("Disk Enumeration failed...\r\n");
 		return(status);
 	}
 

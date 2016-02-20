@@ -57,6 +57,9 @@ static FIL fileObj;	/* File object */
 /* Task to Write Data in USBPendrive. */
 void enterusbisp(void)
 {
+	/* Configure LED stats direction. */
+	LEDPORT->FIODIR |= (1 << LEDPORTPIN);
+
 	/* Configure the NVIC Preemption Priority Bits */
 	NVIC_SetPriorityGrouping(1);
 
@@ -66,7 +69,10 @@ void enterusbisp(void)
 
 	PRINTDBG("\nInit USB Bootloader Read.");
 
-	USB_ReadWriteFile();
+	if(USB_ReadWriteFile() == true)
+	{
+		LEDPORT->FIOPIN |= (1 << LEDPORTPIN);			/* LED's OFF. */
+	}
 
 	while (1);
 }
@@ -75,112 +81,107 @@ void enterusbisp(void)
 static void die(FRESULT rc)
 {
 	PRINTDBG("\n!!!! CRITICAL ERROR !!!!");
-//	printf("\n!!!! CRITICAL ERROR !!!!", rc);
 	while (1);/* Spin for ever */
 }
 
 /* Function to do the read/write to USB Disk */
-void USB_ReadWriteFile(void)
+bool USB_ReadWriteFile(void)
 {
 	FRESULT rc;		/* Result code */
 	UINT br;
+	uint32_t *address = USER_FLASH_START;
 	uint16_t i = 0;
 
-	if(f_mount(&fatFS, "0:", 1) != FR_OK) goto disk_error;	/* First... Mounting USB Unit. */
+	if(f_mount(&fatFS, "0:", 1) != FR_OK)
+	{
+		PRINTDBG("\nUnable to mount pendrive.");	/* First... Mounting USB Unit. */
+		return(false);
+	}
 
-	rc = f_open(&fileObj, "0:firmware.bin", FA_READ);
-	if (rc)
+	if (f_open(&fileObj, "0:firmware.bin", FA_READ) != FR_OK)
 	{
 		PRINTDBG("\nUnable to open firmware.bin from USB.");
+		return(false);
 	}
-	else
+
+	/* LED's ON. */
+	LEDPORT->FIOPIN &= ~(1 << LEDPORTPIN);
+
+	PRINTDBG("\nReading firmware.bin from USB.");
+
+	for (;;)
 	{
-		uint32_t *address = USER_FLASH_START;
+		/* Clear Buffer. */
+		for(i = 0; i < _MIN_SS; i++) buffer[i] = 0;
 
-		PRINTDBG("\nReading firmware.bin from USB.");
+		/* Read a chunk of file */
+		rc = f_read(&fileObj, &buffer, sizeof(buffer), &br);
 
-		for (;;)
+		if (rc || !br)
 		{
-			/* Clear Buffer. */
-			for(i = 0; i < _MIN_SS; i++) buffer[i] = 0;
-
-			/* Read a chunk of file */
-			rc = f_read(&fileObj, &buffer, sizeof(buffer), &br);
-
-			if (rc || !br)
-			{
-				break;					/* Error or end of file */
-			}
-
-			if(address == (uint32_t *)USER_FLASH_START)
-			{
-				uint32_t checksum = 0;
-				uint32_t *tmpptr;
-
-				tmpptr = (uint32_t *)&buffer[0];
-				for (i = 0; i < 8; i++)
-				{
-					checksum += *tmpptr;
-					tmpptr++;
-				}
-				if (checksum != 0)
-				{
-					rc = 1;
-					PRINTDBG("\nChecksum Error.");
-					break;					/* Error! */
-				}
-				PRINTDBG("\nChecksum Valid.");
-			}
-			/* */
-			__disable_irq();
-
-			for(i = USER_START_SECTOR; i <= MAX_USER_SECTOR; i++)
-			{
-				if(address < sector_end_map[i])
-				{
-					if(address == sector_start_map[i])
-					{
-						EraseSector(i,i);
-					}
-					break;
-				}
-			}
-			//
-			if(CopyRAM2Flash((uint8_t *)address, &buffer[0], FLASH_BUF_SIZE) != CMD_SUCCESS)
-			{
-				while(1); /* No way to recover. Just let Windows report a write failure */
-			}
-			//
-			printf("\n%d bytes writed in %#08x.", br, address);
-			address += (FLASH_BUF_SIZE / sizeof(uint32_t));
-			__enable_irq();
-
+			break;					/* Error or end of file */
 		}
 
-		if (rc)
+		if(address == (uint32_t *)USER_FLASH_START)
 		{
-			die(rc);
+			uint32_t checksum = 0;
+			uint32_t *tmpptr;
+
+			tmpptr = (uint32_t *)&buffer[0];
+			for (i = 0; i < 8; i++)
+			{
+				checksum += *tmpptr;
+				tmpptr++;
+			}
+			if (checksum != 0)
+			{
+				rc = 1;
+				PRINTDBG("\nChecksum Error.");
+				return(false);
+			}
+			PRINTDBG("\nChecksum Valid.");
 		}
+		/* */
+		__disable_irq();
 
-		PRINTDBG("\nClose the file.");
-
-		rc = f_close(&fileObj);
-
-		if (rc)
+		for(i = USER_START_SECTOR; i <= MAX_USER_SECTOR; i++)
 		{
-			die(rc);
+			if(address < sector_end_map[i])
+			{
+				if(address == sector_start_map[i])
+				{
+					EraseSector(i,i);
+				}
+				break;
+			}
 		}
+		//
+		if(CopyRAM2Flash((uint8_t *)address, &buffer[0], FLASH_BUF_SIZE) != CMD_SUCCESS)
+		{
+			return(false); /* No way to recover. Just let Windows report a write failure */
+		}
+		//
+#if DEBUG
+		printf("\n%d bytes writed in %#08x.", br, address);
+#endif
+		address += (FLASH_BUF_SIZE / sizeof(uint32_t));
+		__enable_irq();
+
 	}
+
+	if (f_close(&fileObj) != FR_OK)
+	{
+		PRINTDBG("\nError to close file.");
+		return(false);
+	}
+
+	PRINTDBG("\nClose the file.");
 
 	USB_Host_SetDeviceConfiguration(FlashDisk_MS_Interface.Config.PortNumber, 0);
 
 	PRINTDBG("\nFlash userdata updated.");
 
-	while(1);
-
-disk_error:
-	PRINTDBG("\nError Found.");
-	while(1);
+	return(true);
 }
 
 /** Event handler for the USB_DeviceAttached event. This indicates that a device has been attached to the host, and
@@ -188,7 +189,7 @@ disk_error:
  */
 void EVENT_USB_Host_DeviceAttached(const uint8_t corenum)
 {
-//	printf(("\nDevice Attached on port %d."), corenum);
+	PRINTDBGA(("\nDevice Attached on port %d."), corenum);
 }
 
 /** Event handler for the USB_DeviceUnattached event. This indicates that a device has been removed from the host, and
@@ -196,7 +197,7 @@ void EVENT_USB_Host_DeviceAttached(const uint8_t corenum)
  */
 void EVENT_USB_Host_DeviceUnattached(const uint8_t corenum)
 {
-//	printf(("\nDevice Unattached on port %d."), corenum);
+	PRINTDBGA(("\nDevice Unattached on port %d."), corenum);
 }
 
 /** Event handler for the USB_DeviceEnumerationComplete event. This indicates that a device has been successfully
@@ -206,7 +207,6 @@ void EVENT_USB_Host_DeviceEnumerationComplete(const uint8_t corenum)
 {
 	uint16_t ConfigDescriptorSize;
 	uint8_t  ConfigDescriptorData[512];
-//	uint8_t text[128];
 
 	if (USB_Host_GetDeviceConfigDescriptor(corenum, 1, &ConfigDescriptorSize, ConfigDescriptorData,
 										   sizeof(ConfigDescriptorData)) != HOST_GETCONFIG_Successful) {
@@ -233,8 +233,7 @@ void EVENT_USB_Host_DeviceEnumerationComplete(const uint8_t corenum)
 		return;
 	}
 
-//	sprintf(text, "\nTotal LUNs: %d - Using first LUN in device.", (MaxLUNIndex + 1));
-//	PRINTDBG(text);
+	PRINTDBGA("\nTotal LUNs: %d - Using first LUN in device.", (MaxLUNIndex + 1));
 
 	if (MS_Host_ResetMSInterface(&FlashDisk_MS_Interface)) {
 		PRINTDBG("\nError resetting Mass Storage interface.");
@@ -262,9 +261,6 @@ void EVENT_USB_Host_DeviceEnumerationComplete(const uint8_t corenum)
 		return;
 	}
 
-//	sprintf(text, "Vendor \"%.8s\"\r\nProduct \"%.16s\"\r\nRevision \"%.4s\"\r\n", InquiryData.VendorID, InquiryData.ProductID, InquiryData.RevisionID);
-//	PRINTDBG(text);
-
 	PRINTDBG("\nMass Storage Device Enumerated.");
 }
 
@@ -272,10 +268,6 @@ void EVENT_USB_Host_DeviceEnumerationComplete(const uint8_t corenum)
 void EVENT_USB_Host_HostError(const uint8_t corenum, const uint8_t ErrorCode)
 {
 	USB_Disable();
-
-//	printf(("Host Mode Error\r\n"
-//			  " -- Error port %d\r\n"
-//			  " -- Error Code %d\r\n" ), corenum, ErrorCode);
 
 	for (;; ) {}
 }
@@ -287,12 +279,7 @@ void EVENT_USB_Host_DeviceEnumerationFailed(const uint8_t corenum,
 											const uint8_t ErrorCode,
 											const uint8_t SubErrorCode)
 {
-//	printf(("Dev Enum Error\r\n"
-//			  " -- Error port %d\r\n"
-//			  " -- Error Code %d\r\n"
-//			  " -- Sub Error Code %d\r\n"
-//			  " -- In State %d\r\n" ),
-//			 corenum, ErrorCode, SubErrorCode, USB_HostState[corenum]);
+
 }
 
 /**
@@ -303,13 +290,13 @@ uint16_t CALLBACK_USB_GetDescriptor(const uint16_t wValue,
 									const uint8_t wIndex,
 									const void * *const DescriptorAddress)
 {
-	return NO_DESCRIPTOR;
+	return (NO_DESCRIPTOR);
 }
 
 /* Get the disk data structure */
 DISK_HANDLE_T *FSUSB_DiskInit(void)
 {
-	return &FlashDisk_MS_Interface;
+	return (&FlashDisk_MS_Interface);
 }
 
 /* Wait for disk to be inserted */
@@ -319,7 +306,7 @@ int FSUSB_DiskInsertWait(DISK_HANDLE_T *hDisk)
 		MS_Host_USBTask(hDisk);
 		USB_USBTask();
 	}
-	return 1;
+	return (1);
 }
 
 /* Disk acquire function that waits for disk to be ready */
@@ -348,7 +335,8 @@ int FSUSB_DiskAcquire(DISK_HANDLE_T *hDisk)
 		return(0);
 	}
 
-//	printf(("%lu blocks of %lu bytes.\r\n"), DiskCapacity.Blocks, DiskCapacity.BlockSize);
+	PRINTDBGA("\nPendrive size: %lu bytes.", (DiskCapacity.Blocks * DiskCapacity.BlockSize));
+
 	return(1);
 }
 
